@@ -106,7 +106,7 @@ def patches_to_feature(patch_files: list, model_dicts: list[dict], device: torch
 
             for batch in dataloader:
                 batch = batch.to(device)
-                if histaugan:
+                if args.histaugan:
                     batch_aug = []
                     for d in range(histaugan.opts.num_domains):
                         domain = torch.eye(histaugan.opts.num_domains)[d].unsqueeze(0).to(device)
