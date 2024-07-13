@@ -1,5 +1,3 @@
-# NCT-classifier.py
-
 import argparse
 import h5py
 import torch
