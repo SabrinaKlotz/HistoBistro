@@ -1,3 +1,5 @@
+# NCT-classifier.py
+
 import argparse
 import h5py
 import torch
@@ -6,29 +8,49 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import f1_score, accuracy_score
+import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 
-# Dataset class to fetch the UNI features and class labels from the HDF5 files
+# Dataset class to fetch the UNI features and class labels
 class NCTDataset(Dataset):
-    def __init__(self, h5_file_path, transform=None):
-        self.h5_file = h5_file_path
+    def __init__(self, h5_dir, transform=None):
+        self.h5_dir = Path(h5_dir)
         self.transform = transform
         self.features, self.labels = self.load_data()
         self.label_encoder = LabelEncoder()
         self.labels = self.label_encoder.fit_transform(self.labels)
 
-    # read the hdf5 files and create dictionaries for features and labels
+        # with NCT, there are 9 classes
+        # assert len(set(self.labels)) <= 9, "Dataset contains more than 9 classes"
+
+    # load all h5 files in given directory
     def load_data(self):
-        with h5py.File(self.h5_file, 'r') as f:
-            features = []
-            labels = []
-            for key in f.keys():
-                if 'features' in key:
-                    features.append(f[key][:])
-                elif 'labels' in key:
-                    labels.append(f[key][:])
+        features = []
+        labels = []
+        h5_files = list(self.h5_dir.glob('*.h5'))
+        if not h5_files:
+            raise ValueError(f"No HDF5 files found in directory {self.h5_dir}")
+
+        for h5_file in h5_files:
+            print(f"Reading {h5_file}")
+            with h5py.File(h5_file, 'r') as f:
+                if 'feats' in f.keys() and 'patch_file' in f.keys():
+                    features.append(f['feats'][:])
+                    # Assuming the patch_file dataset contains the labels
+                    labels.extend([h5_file.stem] * len(f['patch_file']))
+                else:
+                    print(f"Warning: 'feats' or 'patch_file' dataset not found in {h5_file}")
+
+        if not features or not labels:
+            raise ValueError("No valid data found in HDF5 files")
+
+        # turn features and labels into np arays
+        features = np.concatenate(features, axis=0)
+        labels = np.array(labels)
+        
+        # then make tensor
         features = torch.tensor(features, dtype=torch.float32)
-        labels = torch.tensor(labels, dtype=torch.long)
         return features, labels
 
     def __len__(self):
@@ -58,8 +80,8 @@ class NCTClassifier(nn.Module):
         x = self.fc3(x)
         return x
 
-# training model and using F1 score to assess performance 
-def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, device='cpu'):
+# Using the F1 score to assess performance as well
+def train_model(model, dataloaders, criterion, optimizer, num_epochs, device='cpu', save_plot_path=None):
     model = model.to(device)
     train_loss, val_loss = [], []
     train_acc, val_acc = [], []
@@ -115,7 +137,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, device=
 
             print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f} F1: {epoch_f1:.4f}')
 
-    # Plotting training and validation curves
+    # Plotting training and validation curves in separate png-image
     epochs_range = range(num_epochs)
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
@@ -130,11 +152,15 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, device=
     plt.legend(loc='upper right')
     plt.title('Training and Validation Accuracy')
 
-    plt.show()
+    if save_plot_path:
+        plt.savefig(save_plot_path)
+        print(f'Training curves saved to {save_plot_path}')
+    else:
+        plt.show()
 
     return model
 
-# evaluate model in test dataset
+
 def evaluate_model(model, dataloader, device):
     model.eval()
     all_preds = []
@@ -156,11 +182,11 @@ def evaluate_model(model, dataloader, device):
     print(f'Test Accuracy: {accuracy:.4f} F1 Score: {f1:.4f}')
 
 def main(args):
-    dataset = NCTDataset(h5_file_path=args.h5_file)
+    dataset = NCTDataset(h5_dir=args.h5_dir)
 
-    # define random dataset splits 0.7, 0.15, 0.15 for now
-    train_size = int(0.7 * len(dataset))
-    val_size = int(0.15 * len(dataset))
+    # adjust train, val and test dataset sizes; currently 0.6, 0.2, 0.2
+    train_size = int(0.6 * len(dataset))
+    val_size = int(0.2 * len(dataset))
     test_size = len(dataset) - train_size - val_size
     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
@@ -171,19 +197,18 @@ def main(args):
     }
 
     input_dim = dataset.features.shape[1]
+    num_classes = len(set(dataset.labels))
 
-    # should be nine classes
-    num_classes = len(torch.unique(dataset.labels))
-
-    # hyperparameters we can tune
     model = NCTClassifier(input_dim=input_dim, num_classes=num_classes)
+
+    # adjust loss, optimizer and learning rate as hyperparameters
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
-    # train model
-    trained_model = train_model(model, dataloaders, criterion, optimizer, num_epochs=args.epochs, device=args.device)
+    save_plot_path = 'NCT_classifier_training_curves.png'
+    trained_model = train_model(model, dataloaders, criterion, optimizer, num_epochs=args.epochs, device=args.device, save_plot_path=save_plot_path)
 
-    # save trained model
+    # save model path
     torch.save(trained_model.state_dict(), args.model_save_path)
     print(f'Model saved to {args.model_save_path}')
 
@@ -191,7 +216,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train NCT Classifier')
-    parser.add_argument('--h5_file', type=str, required=True, help='Path to the HDF5 file with features and labels')
+    parser.add_argument('--h5_dir', type=str, required=True, help='Path to the directory with HDF5 files')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate for training')
     parser.add_argument('--epochs', type=int, default=25, help='Number of epochs for training')
