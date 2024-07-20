@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import os
 from sklearn.metrics import f1_score
 
-class HDF5Dataset(Dataset):
+class NCTDataset(Dataset):
     def __init__(self, directory):
         self.features = []
         self.labels = []
@@ -34,9 +34,9 @@ class HDF5Dataset(Dataset):
         label = self.labels[idx]
         return torch.tensor(feature, dtype=torch.float32), torch.tensor(label, dtype=torch.long)
 
-class SimpleNN(nn.Module):
+class NCT_Classification(nn.Module):
     def __init__(self, input_size, num_classes):
-        super(SimpleNN, self).__init__()
+        super(NCT_Classification, self).__init__()
         self.fc1 = nn.Linear(input_size, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, num_classes)
@@ -147,7 +147,7 @@ num_epochs = 10
 save_plot_dir = '.'
 
 # Load dataset and split into training and validation sets
-dataset = HDF5Dataset(directory)
+dataset = NCTDataset(directory)
 train_size = int(0.8 * len(dataset))
 val_size = len(dataset) - train_size
 train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
@@ -159,7 +159,7 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 # Define model
 input_size = dataset.features.shape[1]
 num_classes = len(set(dataset.labels))
-model = SimpleNN(input_size, num_classes)
+model = NCT_Classification(input_size, num_classes)
 
 # Define loss, optimizer, and scheduler
 criterion = nn.CrossEntropyLoss()
