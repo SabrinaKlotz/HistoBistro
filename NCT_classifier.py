@@ -1,15 +1,16 @@
 import h5py
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, Subset
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import matplotlib.pyplot as plt
 import os
 from sklearn.metrics import f1_score
+from sklearn.model_selection import train_test_split
 
-class NCTDataset(Dataset):
+class HDF5Dataset(Dataset):
     def __init__(self, directory):
         self.features = []
         self.labels = []
@@ -34,12 +35,12 @@ class NCTDataset(Dataset):
         label = self.labels[idx]
         return torch.tensor(feature, dtype=torch.float32), torch.tensor(label, dtype=torch.long)
 
-class NCT_Classification(nn.Module):
+class SimpleNN(nn.Module):
     def __init__(self, input_size, num_classes):
-        super(NCT_Classification, self).__init__()
-        self.fc1 = nn.Linear(input_size, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, num_classes)
+        super(SimpleNN, self).__init__()
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, num_classes)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
 
@@ -145,12 +146,18 @@ directory = '/mnt/volume/mathias/outputs/patch_uni_output/h5_files'
 batch_size = 32
 num_epochs = 10
 save_plot_dir = '.'
+model_save_path = 'nct_classifier_model.pth'
 
-# Load dataset and split into training and validation sets
-dataset = NCTDataset(directory)
-train_size = int(0.8 * len(dataset))
-val_size = len(dataset) - train_size
-train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+# Load dataset
+dataset = HDF5Dataset(directory)
+
+# Perform stratified train-test split
+train_indices, val_indices = train_test_split(
+    np.arange(len(dataset)), test_size=0.2, stratify=dataset.labels, random_state=42
+)
+
+train_dataset = Subset(dataset, train_indices)
+val_dataset = Subset(dataset, val_indices)
 
 # Create dataloaders
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -159,7 +166,7 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 # Define model
 input_size = dataset.features.shape[1]
 num_classes = len(set(dataset.labels))
-model = NCT_Classification(input_size, num_classes)
+model = SimpleNN(input_size, num_classes)
 
 # Define loss, optimizer, and scheduler
 criterion = nn.CrossEntropyLoss()
@@ -168,6 +175,10 @@ scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
 
 # Train model
 train_loss, val_loss, train_f1_scores, val_f1_scores = train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs)
+
+# Save the model
+torch.save(model.state_dict(), model_save_path)
+print(f'Model saved to {model_save_path}')
 
 # Plot and save loss and F1 score curves
 plot_metrics(train_loss, val_loss, train_f1_scores, val_f1_scores, save_dir=save_plot_dir)
