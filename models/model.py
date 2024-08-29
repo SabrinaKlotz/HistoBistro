@@ -35,6 +35,8 @@ def get_models(modelnames):
             model = get_ctranspath()
         elif modelname.lower() == 'uni':
             model = get_uni()
+        elif modelname.lower() == 'uni_cell':
+            model = get_uni_cell()
         elif modelname.lower() == 'resnet50':
             model = get_res50()
         elif modelname.lower() == "kimianet":
@@ -100,6 +102,12 @@ def get_uni():
     model.load_state_dict(pretrained, strict=True)
     return model
 
+def get_uni_cell():
+    model = uni_cell()
+    pretrained = torch.load(UNI_PATH)
+    model.load_state_dict(pretrained, strict=True)
+    return model
+
 
 def get_kimianet():
     return load_kimianet(KIMIANET_PATH)
@@ -136,7 +144,7 @@ def get_transforms(model_name):
     mean = (0.485, 0.456, 0.406)
     std = (0.229, 0.224, 0.225)
 
-    if model_name.lower() in ['ctranspath', 'resnet50',"simclr_lung", 'beit_fb', 'uni']:
+    if model_name.lower() in ['ctranspath', 'resnet50',"simclr_lung", 'beit_fb', 'uni', 'uni_cell']:
         resolution = 224
     elif model_name.lower() == 'retccl':
         resolution = 256
